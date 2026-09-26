@@ -1,0 +1,14 @@
+{
+  "appName": "AnimeWorld India",
+  "adminEmail": "prithvirajshetty769@gmail.com",
+  "famGatewayApiKey": "",
+  "famGatewayMerchantId": "",
+  "premiumAnimeIds": [
+    "solo-leveling",
+    "jujutsu-kaisen",
+    "chainsaw-man-the-movie-reze-arc",
+    "demon-slayer-kimetsu-no-yaiba",
+    "suzume",
+    "your-name"
+  ]
+}

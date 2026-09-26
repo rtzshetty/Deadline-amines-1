@@ -9,22 +9,34 @@ import {
   Star,
   Clock,
   ArrowLeft,
-  Maximize2
+  Maximize2,
+  Crown,
+  Lock,
+  Sparkles,
+  CreditCard,
+  Shield,
+  Check
 } from 'lucide-react';
-import { StreamData, WatchHistoryItem } from '../types';
+import { StreamData, WatchHistoryItem, UserProfile } from '../types';
 
 interface WatchPageProps {
   id: string;
   isMovie?: boolean;
   onNavigate: (tab: string, param?: string) => void;
   onAddToHistory: (item: WatchHistoryItem) => void;
+  currentUser?: UserProfile | null;
+  onOpenPricing?: () => void;
+  onOpenAuth?: () => void;
 }
 
 export const WatchPage: React.FC<WatchPageProps> = ({
   id,
   isMovie = false,
   onNavigate,
-  onAddToHistory
+  onAddToHistory,
+  currentUser = null,
+  onOpenPricing,
+  onOpenAuth
 }) => {
   const [data, setData] = useState<StreamData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,22 +52,31 @@ export const WatchPage: React.FC<WatchPageProps> = ({
       setError(null);
       try {
         const param = isMovie ? `movieId=${id}` : `episodeId=${id}`;
-        const res = await fetch(`/api/anime-world-india/v1/stream?${param}`);
+        const userEmailParam = currentUser?.email ? `&userEmail=${encodeURIComponent(currentUser.email)}` : '';
+        const res = await fetch(`/api/anime-world-india/v1/stream?${param}${userEmailParam}`, {
+          headers: {
+            'x-user-email': currentUser?.email || ''
+          }
+        });
         const json: StreamData = await res.json();
 
         if (!isMounted) return;
 
-        if (json.success && json.stream) {
+        if (json.success) {
           setData(json);
 
-          // Find default stream url
-          const initialUrl = json.stream.streamLink || (json.stream.servers[0]?.url ?? '');
-          setActiveStreamUrl(initialUrl);
+          // If not locked, find default stream url
+          if (!json.isPremiumLocked && json.stream) {
+            const initialUrl = json.stream.streamLink || (json.stream.servers[0]?.url ?? '');
+            setActiveStreamUrl(initialUrl);
+          }
 
           // Save to watch history
           const title = json.series?.title || json.movie?.title || id.replace(/-/g, ' ');
           const poster = json.series?.poster || json.movie?.poster || '';
-          const epNum = json.current?.episodeId?.split('x')[1] ? `Episode ${json.current.episodeId.split('x')[1]}` : undefined;
+          const epNum = json.current?.episodeId?.split('x')[1]
+            ? `Episode ${json.current.episodeId.split('x')[1]}`
+            : undefined;
 
           onAddToHistory({
             id,
@@ -80,7 +101,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [id, isMovie]);
+  }, [id, isMovie, currentUser?.email, currentUser?.isPremium]);
 
   const handleAudioChange = (track: { language: string; url: string }) => {
     setSelectedAudio(track.language);
@@ -122,10 +143,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
     );
   }
 
-  const { series, movie, current, stream, episodes = [], previous, next } = data;
+  const { series, movie, current, stream, episodes = [], previous, next, isPremiumLocked } = data;
   const currentTitle = movie?.title || current?.title || id.replace(/-/g, ' ');
   const parentSeriesTitle = series?.title || '';
   const cleanRating = (movie?.rating || series?.rating || '8.5').replace(/TMDB\s*/i, '');
+  const backdropPoster = movie?.poster || series?.poster || '';
 
   return (
     <div className={`space-y-8 animate-fade-in ${theaterMode ? 'max-w-full' : 'max-w-7xl'} mx-auto`}>
@@ -157,11 +179,80 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
       {/* Main Grid: Player on left, episode list on right */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-        {/* Left Column: Player, Audio Dub Selectors, Info */}
+        {/* Left Column: Player or VIP Lock Screen */}
         <div className="lg:col-span-2 space-y-6">
           {/* Responsive Video Container */}
           <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black border border-[#232838] shadow-2xl shadow-black/80">
-            {activeStreamUrl ? (
+            {isPremiumLocked ? (
+              /* VIP Paywall Overlay */
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#131722]/95 via-[#0e1017]/95 to-[#090b10] backdrop-blur-md">
+                {backdropPoster && (
+                  <div className="absolute inset-0 opacity-15 overflow-hidden pointer-events-none">
+                    <img src={backdropPoster} alt="Background" className="w-full h-full object-cover blur-md" />
+                  </div>
+                )}
+
+                <div className="relative z-10 max-w-lg space-y-4 animate-fade-in">
+                  <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center mx-auto shadow-lg shadow-amber-500/20">
+                    <Crown className="w-8 h-8 fill-amber-400" />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <span className="text-[11px] font-black uppercase tracking-widest text-amber-400">
+                      VIP Premium Locked Title
+                    </span>
+                    <h3 className="text-xl sm:text-2xl font-black text-white font-['Syne']">
+                      {currentTitle}
+                    </h3>
+                    <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
+                      This anime is designated as VIP Premium by the admin. Subscribe to any plan via FamGateway to unlock full HD multi-audio streaming instantly.
+                    </p>
+                  </div>
+
+                  {/* 3 Quick Plans Preview */}
+                  <div className="grid grid-cols-3 gap-2.5 pt-2">
+                    <div className="p-2.5 rounded-xl bg-[#141824] border border-slate-800 text-left">
+                      <span className="text-[9px] text-red-400 font-bold uppercase block">Fan Pass</span>
+                      <div className="text-sm font-black text-white">₹149</div>
+                      <span className="text-[10px] text-slate-400">30 Days</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-[#141824] border border-slate-800 text-left">
+                      <span className="text-[9px] text-red-400 font-bold uppercase block">VIP Otaku</span>
+                      <div className="text-sm font-black text-white">₹149</div>
+                      <span className="text-[10px] text-slate-400">4K & 2 Dev</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-amber-950/30 border border-amber-500/40 text-left">
+                      <span className="text-[9px] text-amber-400 font-bold uppercase block">Yearly Pass</span>
+                      <div className="text-sm font-black text-amber-300">₹600</div>
+                      <span className="text-[10px] text-amber-200">365 Days</span>
+                    </div>
+                  </div>
+
+                  {/* Buttons */}
+                  <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+                    {onOpenPricing && (
+                      <button
+                        onClick={onOpenPricing}
+                        className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition cursor-pointer"
+                      >
+                        <CreditCard className="w-4 h-4" />
+                        <span>Unlock with FamGateway (₹149)</span>
+                      </button>
+                    )}
+
+                    {onOpenAuth && (
+                      <button
+                        onClick={onOpenAuth}
+                        className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-semibold text-xs flex items-center justify-center gap-1.5 border border-slate-700 transition cursor-pointer"
+                      >
+                        <Shield className="w-3.5 h-3.5" />
+                        <span>Sign In / Admin Access</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : activeStreamUrl ? (
               <iframe
                 src={activeStreamUrl}
                 title={currentTitle}
@@ -177,7 +268,7 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           </div>
 
           {/* Episode Controls Bar */}
-          {!isMovie && (
+          {!isMovie && !isPremiumLocked && (
             <div className="flex items-center justify-between gap-3 bg-[#11141e] p-3 rounded-xl border border-[#232838]">
               {previous ? (
                 <button
@@ -216,174 +307,140 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           )}
 
           {/* Audio Dub Language Selectors */}
-          {stream.audioTracks && stream.audioTracks.length > 0 && (
+          {!isPremiumLocked && stream?.audioTracks && stream.audioTracks.length > 0 && (
             <div className="bg-[#11141e] p-4 rounded-xl border border-[#232838] space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-300">
-                  <Volume2 className="w-4 h-4 text-red-500" />
-                  <span>Available Audio Tracks (Select Language)</span>
-                </div>
-                <span className="text-[11px] text-slate-500">Instant Switch</span>
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
+                <Volume2 className="w-4 h-4 text-red-500" />
+                <span>Audio Tracks & Dubbing:</span>
               </div>
-
               <div className="flex flex-wrap gap-2">
-                {stream.audioTracks.map((track, idx) => {
-                  const isActive = track.url === activeStreamUrl || selectedAudio === track.language;
-                  return (
-                    <button
-                      key={`${track.language}-${idx}`}
-                      onClick={() => handleAudioChange(track)}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
-                        isActive
-                          ? 'bg-red-600 text-white shadow-lg shadow-red-600/30'
-                          : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60'
-                      }`}
-                    >
-                      <span>{track.language}</span>
-                      {track.code && (
-                        <span className="text-[10px] opacity-75 font-mono">({track.code.toUpperCase()})</span>
-                      )}
-                    </button>
-                  );
-                })}
+                {stream.audioTracks.map((track, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleAudioChange(track)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                      selectedAudio === track.language
+                        ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
+                        : 'bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    <span>{track.language}</span>
+                  </button>
+                ))}
               </div>
             </div>
           )}
 
-          {/* Alternative Stream Servers */}
-          {stream.servers && stream.servers.length > 1 && (
-            <div className="bg-[#11141e] p-4 rounded-xl border border-[#232838] space-y-2">
-              <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-400">
-                <div className="flex items-center gap-2">
-                  <Tv className="w-4 h-4 text-red-500" />
-                  <span>Streaming Servers</span>
-                </div>
-              </div>
+          {/* Servers Switcher */}
+          {!isPremiumLocked && stream?.servers && stream.servers.length > 1 && (
+            <div className="bg-[#11141e] p-4 rounded-xl border border-[#232838] space-y-3">
+              <span className="text-xs font-semibold text-slate-400 block">Switch Stream Server:</span>
               <div className="flex flex-wrap gap-2">
-                {stream.servers.map((srv, idx) => {
-                  const isActive = srv.url === activeStreamUrl;
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => handleServerChange(srv.url)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
-                        isActive
-                          ? 'bg-slate-700 text-white border border-slate-500'
-                          : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-                      }`}
-                    >
-                      {srv.name}
-                    </button>
-                  );
-                })}
+                {stream.servers.map((server, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleServerChange(server.url)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+                      activeStreamUrl === server.url
+                        ? 'bg-slate-200 text-black font-semibold'
+                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    {server.name}
+                  </button>
+                ))}
               </div>
             </div>
           )}
 
-          {/* Metadata & Synopsis Details (Zero-Pill Discipline) */}
-          <div className="bg-[#11141e] p-6 rounded-2xl border border-[#232838] space-y-4">
-            <div>
-              <h1 className="text-xl md:text-2xl font-bold text-white font-['Syne']">
-                {currentTitle}
-              </h1>
-
-              {/* Unboxed Metadata with Typographic Separators */}
-              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 mt-2">
-                {parentSeriesTitle && (
-                  <>
-                    <span className="text-red-400 font-semibold">{parentSeriesTitle}</span>
-                    <span aria-hidden="true" className="text-slate-600">·</span>
-                  </>
-                )}
-                {series?.season && (
-                  <>
-                    <span>{series.season}</span>
-                    <span aria-hidden="true" className="text-slate-600">·</span>
-                  </>
-                )}
-                <span className="flex items-center gap-1 text-amber-300 font-bold">
-                  <Star className="w-3.5 h-3.5 fill-amber-300 text-amber-300" />
-                  <span className="tabular-nums">{cleanRating}</span>
+          {/* Episode / Movie Info */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center gap-3 text-xs text-slate-400 flex-wrap">
+              {parentSeriesTitle && (
+                <span className="font-bold text-red-400 text-sm">{parentSeriesTitle}</span>
+              )}
+              {cleanRating && (
+                <div className="flex items-center gap-1 font-bold text-amber-300">
+                  <Star className="w-3.5 h-3.5 fill-amber-300" />
+                  <span>TMDB {cleanRating}</span>
+                </div>
+              )}
+              {isPremiumLocked && (
+                <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[10px] font-bold flex items-center gap-1">
+                  <Crown className="w-3 h-3" /> VIP Premium
                 </span>
-                <span aria-hidden="true" className="text-slate-600">·</span>
-                <span className="flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>{movie?.duration || series?.duration || '24 min'}</span>
-                </span>
-                <span aria-hidden="true" className="text-slate-600">·</span>
-                <span>Hindi Dubbed & Multi-Audio</span>
-              </div>
+              )}
             </div>
 
-            <p className="text-sm text-slate-300 leading-relaxed">
-              {current?.overview || movie?.description || series?.description || 'Enjoy seamless anime streaming with multi-audio dubbed tracks.'}
+            <h1 className="text-xl sm:text-2xl font-black text-white font-['Syne']">
+              {currentTitle}
+            </h1>
+
+            <p className="text-xs sm:text-sm text-slate-400 leading-relaxed max-w-3xl">
+              {current?.overview || movie?.description || series?.description || 'Watch full high definition anime streaming with multi-audio servers.'}
             </p>
           </div>
         </div>
 
-        {/* Right Column: Up Next Episodes Sidebar */}
-        <div className="space-y-4">
-          <h3 className="text-base font-bold text-white font-['Syne'] flex items-center justify-between px-1">
-            <span>{isMovie ? 'Recommended Anime' : 'Episodes in this Series'}</span>
-            <span className="text-xs text-slate-500 font-normal">
-              {episodes.length} available
-            </span>
-          </h3>
+        {/* Right Column: Up Next / Season Episodes */}
+        <div className="space-y-4 bg-[#11141e] p-4 sm:p-5 rounded-2xl border border-[#232838]">
+          <div className="flex items-center justify-between pb-3 border-b border-[#232838]">
+            <div className="flex items-center gap-2">
+              <Tv className="w-4 h-4 text-red-500" />
+              <h3 className="text-sm font-bold text-white font-['Syne']">
+                {isMovie ? 'Related Features' : 'Season Episodes'}
+              </h3>
+            </div>
+            <span className="text-xs text-slate-500">{episodes.length} Available</span>
+          </div>
 
-          <div className="space-y-2 max-h-[720px] overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
             {episodes.length === 0 ? (
-              <div className="p-8 text-center text-slate-500 text-xs border border-dashed border-[#232838] rounded-xl">
-                No next episodes listed.
-              </div>
+              <p className="text-xs text-slate-500 py-6 text-center">No other episodes indexed.</p>
             ) : (
               episodes.map((ep) => {
                 const isActive = ep.episodeId === id;
                 return (
-                  <div
+                  <button
                     key={ep.episodeId}
-                    onClick={() => onNavigate('watch', ep.episodeId)}
-                    role="button"
-                    tabIndex={0}
-                    className={`flex items-center gap-3 p-2.5 rounded-xl border transition-all cursor-pointer group ${
+                    onClick={() => onNavigate(isMovie ? 'watch-movie' : 'watch', ep.episodeId)}
+                    className={`w-full p-2 rounded-xl text-left flex items-center gap-3 transition cursor-pointer ${
                       isActive
-                        ? 'bg-red-950/30 border-red-500/60 shadow-md'
-                        : 'bg-[#11141e] border-[#232838] hover:bg-[#181d2a]'
+                        ? 'bg-red-600/20 border border-red-500/40 text-white'
+                        : 'hover:bg-slate-800/60 border border-transparent text-slate-300'
                     }`}
                   >
-                    <div className="relative w-24 aspect-[16/10] rounded-lg overflow-hidden bg-slate-900 shrink-0">
+                    <div className="relative w-16 aspect-video rounded-lg overflow-hidden bg-slate-900 shrink-0">
                       {ep.image ? (
-                        <img
-                          src={ep.image}
-                          alt={ep.title}
-                          referrerPolicy="no-referrer"
-                          className="w-full h-full object-cover"
-                        />
+                        <img src={ep.image} alt={ep.title} className="w-full h-full object-cover" />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-slate-600">
+                        <div className="w-full h-full flex items-center justify-center text-slate-700">
                           <Play className="w-4 h-4" />
                         </div>
                       )}
                       {isActive && (
-                        <div className="absolute inset-0 bg-red-600/40 flex items-center justify-center">
-                          <Play className="w-4 h-4 fill-white text-white" />
+                        <div className="absolute inset-0 bg-red-600/60 flex items-center justify-center">
+                          <Play className="w-4 h-4 fill-white text-white ml-0.5" />
                         </div>
                       )}
                     </div>
 
-                    <div className="flex-1 min-w-0">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-red-400 block">
-                        {ep.episodeNumber || 'Episode'}
-                      </span>
-                      <h4 className="text-xs font-semibold text-slate-200 truncate group-hover:text-red-400 transition-colors">
-                        {ep.title}
-                      </h4>
-                      {ep.airDate && (
-                        <span className="text-[11px] text-slate-500 block mt-0.5">
-                          {ep.airDate}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold uppercase text-red-400">
+                          {ep.episodeNumber || 'Episode'}
                         </span>
-                      )}
+                        {ep.isPremium && (
+                          <span className="text-[9px] font-bold text-amber-400 flex items-center gap-0.5">
+                            <Crown className="w-2.5 h-2.5" /> VIP
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs font-semibold text-slate-200 truncate mt-0.5">
+                        {ep.title}
+                      </p>
                     </div>
-                  </div>
+                  </button>
                 );
               })
             )}

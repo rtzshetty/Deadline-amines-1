@@ -1,0 +1,16 @@
+[
+  {
+    "email": "prithvirajshetty769@gmail.com",
+    "isPremium": true,
+    "plan": "Admin Lifetime Access",
+    "expiresAt": 253402300799000,
+    "createdAt": 1727342400000
+  },
+  {
+    "email": "testfan@gmail.com",
+    "isPremium": true,
+    "plan": "Monthly Standard Fan",
+    "expiresAt": 1793013075775,
+    "createdAt": 1790421075775
+  }
+]

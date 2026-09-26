@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Film, Tv, Star } from 'lucide-react';
+import { Play, Film, Tv, Star, Crown } from 'lucide-react';
 import { AnimeItem } from '../types';
 
 interface AnimeCardProps {
@@ -53,14 +53,22 @@ export const AnimeCard: React.FC<AnimeCardProps> = ({ item, onClick, showType = 
           </div>
         </div>
 
-        {/* Discrete Top Scrim with rating */}
+        {/* Discrete Top Scrim with rating and VIP badge */}
         <div className="absolute top-0 inset-x-0 p-2.5 flex items-center justify-between pointer-events-none bg-gradient-to-b from-black/80 via-black/30 to-transparent">
-          {cleanRating ? (
-            <div className="flex items-center gap-1 text-[11px] font-bold text-amber-300 drop-shadow-md">
-              <Star className="w-3 h-3 fill-amber-300 text-amber-300" />
-              <span className="tabular-nums">{cleanRating}</span>
-            </div>
-          ) : <span />}
+          <div className="flex items-center gap-1.5">
+            {cleanRating && (
+              <div className="flex items-center gap-1 text-[11px] font-bold text-amber-300 drop-shadow-md">
+                <Star className="w-3 h-3 fill-amber-300 text-amber-300" />
+                <span className="tabular-nums">{cleanRating}</span>
+              </div>
+            )}
+            {item.isPremium && (
+              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gradient-to-r from-amber-500 to-amber-600 text-black text-[9px] font-black uppercase tracking-wider shadow-sm">
+                <Crown className="w-2.5 h-2.5 fill-black" />
+                <span>VIP</span>
+              </div>
+            )}
+          </div>
 
           {showType && (
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 drop-shadow-md">

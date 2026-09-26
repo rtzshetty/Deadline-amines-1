@@ -2,6 +2,8 @@ import express, { Request, Response } from 'express';
 import { parse } from 'node-html-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
+import 'dotenv/config';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,6 +12,146 @@ const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
 app.use(express.json());
+
+// Enable CORS and Preflight for all API routes (supports Vercel preview URLs, custom domains, and local dev)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-user-email');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// ----------------------------------------------------
+// Admin Configuration & Premium Persistent Store
+// ----------------------------------------------------
+const isVercel = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const BUNDLED_DATA_DIR = path.resolve(__dirname, 'data');
+const DATA_DIR = isVercel ? path.resolve('/tmp', 'data') : BUNDLED_DATA_DIR;
+const CONFIG_FILE = path.resolve(DATA_DIR, 'admin_config.json');
+const USERS_FILE = path.resolve(DATA_DIR, 'premium_users.json');
+
+interface AdminConfig {
+  appName?: string;
+  adminEmail: string;
+  famGatewayApiKey: string;
+  famGatewayMerchantId?: string;
+  premiumAnimeIds: string[];
+}
+
+interface PremiumUser {
+  email: string;
+  isPremium: boolean;
+  plan: string;
+  expiresAt: number;
+  createdAt?: number;
+}
+
+let adminConfig: AdminConfig = {
+  appName: 'AnimeWorld India',
+  adminEmail: 'prithvirajshetty769@gmail.com',
+  famGatewayApiKey: '',
+  famGatewayMerchantId: '',
+  premiumAnimeIds: [
+    'solo-leveling',
+    'jujutsu-kaisen',
+    'chainsaw-man-the-movie-reze-arc',
+    'demon-slayer-kimetsu-no-yaiba',
+    'suzume',
+    'your-name'
+  ]
+};
+
+function loadAdminConfig(): void {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      const raw = fs.readFileSync(CONFIG_FILE, 'utf-8');
+      adminConfig = { ...adminConfig, ...JSON.parse(raw) };
+      return;
+    }
+    const bundledConfig = path.resolve(BUNDLED_DATA_DIR, 'admin_config.json');
+    if (fs.existsSync(bundledConfig)) {
+      const raw = fs.readFileSync(bundledConfig, 'utf-8');
+      adminConfig = { ...adminConfig, ...JSON.parse(raw) };
+    }
+    saveAdminConfig();
+  } catch (e) {
+    console.warn('Notice: Using in-memory admin config:', e);
+  }
+}
+
+function saveAdminConfig(): void {
+  try {
+    const dir = path.dirname(CONFIG_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(adminConfig, null, 2), 'utf-8');
+  } catch (e) {
+    console.warn('Notice: Filesystem write skipped, config preserved in-memory:', e);
+  }
+}
+
+let premiumUsers: PremiumUser[] = [
+  {
+    email: 'prithvirajshetty769@gmail.com',
+    isPremium: true,
+    plan: 'Admin Lifetime Access',
+    expiresAt: 253402300799000,
+    createdAt: Date.now()
+  }
+];
+
+function loadPremiumUsers(): void {
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      const raw = fs.readFileSync(USERS_FILE, 'utf-8');
+      premiumUsers = JSON.parse(raw);
+      return;
+    }
+    const bundledUsers = path.resolve(BUNDLED_DATA_DIR, 'premium_users.json');
+    if (fs.existsSync(bundledUsers)) {
+      const raw = fs.readFileSync(bundledUsers, 'utf-8');
+      premiumUsers = JSON.parse(raw);
+    }
+    savePremiumUsers();
+  } catch (e) {
+    console.warn('Notice: Using in-memory premium users:', e);
+  }
+}
+
+function savePremiumUsers(): void {
+  try {
+    const dir = path.dirname(USERS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(USERS_FILE, JSON.stringify(premiumUsers, null, 2), 'utf-8');
+  } catch (e) {
+    console.warn('Notice: Filesystem write skipped, users preserved in-memory:', e);
+  }
+}
+
+loadAdminConfig();
+loadPremiumUsers();
+
+function isAnimePremium(slug?: string | null): boolean {
+  if (!slug) return false;
+  const cleanSlug = slug.toLowerCase().trim();
+  return adminConfig.premiumAnimeIds.some(p => p.toLowerCase().trim() === cleanSlug);
+}
+
+function isUserPremium(email?: string | null): { isPremium: boolean; isAdmin: boolean; plan?: string; expiresAt?: number } {
+  if (!email) return { isPremium: false, isAdmin: false };
+  const cleanEmail = email.toLowerCase().trim();
+  const isAdmin = cleanEmail === adminConfig.adminEmail.toLowerCase().trim();
+  if (isAdmin) {
+    return { isPremium: true, isAdmin: true, plan: 'Admin Lifetime Access', expiresAt: 253402300799000 };
+  }
+  const user = premiumUsers.find(u => u.email.toLowerCase().trim() === cleanEmail);
+  if (user && user.isPremium && user.expiresAt > Date.now()) {
+    return { isPremium: true, isAdmin: false, plan: user.plan, expiresAt: user.expiresAt };
+  }
+  return { isPremium: false, isAdmin: false };
+}
 
 // ----------------------------------------------------
 // Upstream Configuration & User Agents
@@ -71,7 +213,8 @@ const FALLBACK_SERIES = [
     seriesId: 'naruto-shippuden',
     slug: 'naruto-shippuden',
     type: 'series' as const,
-    language: 'Hindi, Tamil, Telugu, English, Japanese'
+    language: 'Hindi, Tamil, Telugu, English, Japanese',
+    isPremium: false
   },
   {
     title: 'Naruto',
@@ -81,7 +224,8 @@ const FALLBACK_SERIES = [
     seriesId: 'naruto',
     slug: 'naruto',
     type: 'series' as const,
-    language: 'Hindi, Tamil, Telugu, English'
+    language: 'Hindi, Tamil, Telugu, English',
+    isPremium: false
   },
   {
     title: 'Jujutsu Kaisen',
@@ -91,7 +235,8 @@ const FALLBACK_SERIES = [
     seriesId: 'jujutsu-kaisen',
     slug: 'jujutsu-kaisen',
     type: 'series' as const,
-    language: 'Hindi, English, Japanese'
+    language: 'Hindi, English, Japanese',
+    isPremium: true
   },
   {
     title: 'Demon Slayer: Kimetsu no Yaiba',
@@ -101,7 +246,8 @@ const FALLBACK_SERIES = [
     seriesId: 'demon-slayer-kimetsu-no-yaiba',
     slug: 'demon-slayer-kimetsu-no-yaiba',
     type: 'series' as const,
-    language: 'Hindi, Tamil, Telugu, English'
+    language: 'Hindi, Tamil, Telugu, English',
+    isPremium: true
   },
   {
     title: 'One-Punch Man',
@@ -111,7 +257,8 @@ const FALLBACK_SERIES = [
     seriesId: 'one-punch-man',
     slug: 'one-punch-man',
     type: 'series' as const,
-    language: 'Hindi, English, Japanese'
+    language: 'Hindi, English, Japanese',
+    isPremium: false
   },
   {
     title: 'Solo Leveling',
@@ -121,7 +268,8 @@ const FALLBACK_SERIES = [
     seriesId: 'solo-leveling',
     slug: 'solo-leveling',
     type: 'series' as const,
-    language: 'Hindi, English, Japanese'
+    language: 'Hindi, English, Japanese',
+    isPremium: true
   },
   {
     title: 'Dragon Ball Z',
@@ -131,7 +279,8 @@ const FALLBACK_SERIES = [
     seriesId: 'dragon-ball-z',
     slug: 'dragon-ball-z',
     type: 'series' as const,
-    language: 'Hindi, English, Japanese'
+    language: 'Hindi, English, Japanese',
+    isPremium: false
   },
   {
     title: 'Attack on Titan',
@@ -141,7 +290,8 @@ const FALLBACK_SERIES = [
     seriesId: 'attack-on-titan',
     slug: 'attack-on-titan',
     type: 'series' as const,
-    language: 'Hindi, English, Japanese'
+    language: 'Hindi, English, Japanese',
+    isPremium: false
   }
 ];
 
@@ -154,7 +304,8 @@ const FALLBACK_MOVIES = [
     movieId: 'shinchan-movie-the-spicy-kasukabe-dancers',
     slug: 'shinchan-movie-the-spicy-kasukabe-dancers',
     type: 'movie' as const,
-    language: 'Hindi, Tamil, Telugu, Bengali'
+    language: 'Hindi, Tamil, Telugu, Bengali',
+    isPremium: false
   },
   {
     title: 'Your Name.',
@@ -164,7 +315,8 @@ const FALLBACK_MOVIES = [
     movieId: 'your-name',
     slug: 'your-name',
     type: 'movie' as const,
-    language: 'Hindi, English, Japanese'
+    language: 'Hindi, English, Japanese',
+    isPremium: true
   },
   {
     title: 'Suzume',
@@ -174,7 +326,8 @@ const FALLBACK_MOVIES = [
     movieId: 'suzume',
     slug: 'suzume',
     type: 'movie' as const,
-    language: 'Hindi, English, Japanese'
+    language: 'Hindi, English, Japanese',
+    isPremium: true
   },
   {
     title: 'Weathering with You',
@@ -184,7 +337,8 @@ const FALLBACK_MOVIES = [
     movieId: 'weathering-with-you',
     slug: 'weathering-with-you',
     type: 'movie' as const,
-    language: 'Hindi, English, Japanese'
+    language: 'Hindi, English, Japanese',
+    isPremium: false
   },
   {
     title: "Doraemon the Movie: Nobita's Earth Symphony",
@@ -194,7 +348,8 @@ const FALLBACK_MOVIES = [
     movieId: 'doraemon-the-movie-nobitas-earth-symphony',
     slug: 'doraemon-the-movie-nobitas-earth-symphony',
     type: 'movie' as const,
-    language: 'Hindi, Tamil, Telugu'
+    language: 'Hindi, Tamil, Telugu',
+    isPremium: false
   },
   {
     title: 'Jujutsu Kaisen 0',
@@ -204,11 +359,11 @@ const FALLBACK_MOVIES = [
     movieId: 'jujutsu-kaisen-0-movie',
     slug: 'jujutsu-kaisen-0-movie',
     type: 'movie' as const,
-    language: 'Hindi, English, Japanese'
+    language: 'Hindi, English, Japanese',
+    isPremium: false
   }
 ];
 
-// Helper to parse individual article items
 function parsePostItem(elem: any, fallbackType: 'series' | 'movie' = 'series'): any {
   const artTitle = elem.querySelector('h2.entry-title, .entry-title')?.text.trim();
   const link = elem.querySelector('a.lnk-blk, a')?.getAttribute('href') || '';
@@ -233,6 +388,7 @@ function parsePostItem(elem: any, fallbackType: 'series' | 'movie' = 'series'): 
   }
 
   const title = artTitle || id.replace(/-/g, ' ');
+  const slug = id;
   return {
     title,
     image: fixImageUrl(img),
@@ -240,8 +396,9 @@ function parsePostItem(elem: any, fallbackType: 'series' | 'movie' = 'series'): 
     rating,
     type,
     [type === 'series' ? 'seriesId' : 'movieId']: id,
-    slug: id,
-    language: 'Hindi, Tamil, Telugu, English'
+    slug,
+    language: 'Hindi, Tamil, Telugu, English',
+    isPremium: isAnimePremium(slug)
   };
 }
 
@@ -280,23 +437,27 @@ const syncStore: SyncStore = {
   moviesCatalog: new Map()
 };
 
+function refreshAnimePremiumStatuses() {
+  for (const [slug, item] of syncStore.allAnimeMap.entries()) {
+    item.isPremium = isAnimePremium(slug);
+  }
+}
+
 // Seed initial fallback into map
 [...FALLBACK_SERIES, ...FALLBACK_MOVIES].forEach(item => {
-  syncStore.allAnimeMap.set(item.slug, item);
+  syncStore.allAnimeMap.set(item.slug, { ...item, isPremium: isAnimePremium(item.slug) });
 });
 
 async function syncAllAnime(force: boolean = false) {
   if (syncStore.isSyncing) return;
-  // If recently synced (within 10 minutes) and not forced, skip
   if (!force && Date.now() - syncStore.lastSynced < 10 * 60 * 1000 && syncStore.totalSyncedCount > 50) {
     return;
   }
 
   syncStore.isSyncing = true;
-  console.log('🔄 Starting AnimeWorld India Sync Engine...');
+  console.log('🔄 Starting Deadline Anime Sync Engine...');
 
   try {
-    // 1. Sync Homepage sections
     const homeHtml = await fetchHtml(UPSTREAM_BASE_URL);
     if (homeHtml) {
       const sections = homeHtml.split('<section');
@@ -317,7 +478,6 @@ async function syncAllAnime(force: boolean = false) {
         const root = parse(chunk);
         const lowerTitle = secTitle.toLowerCase();
 
-        // Standard articles
         for (const art of root.querySelectorAll('article.post, article')) {
           const item = parsePostItem(art, lowerTitle.includes('movie') || lowerTitle.includes('film') ? 'movie' : 'series');
           if (item && item.slug) {
@@ -331,7 +491,6 @@ async function syncAllAnime(force: boolean = false) {
           }
         }
 
-        // Trending / Top picks
         for (const tp of root.querySelectorAll('.top-picks__item a')) {
           const link = tp.getAttribute('href') || '';
           const img = tp.querySelector('img')?.getAttribute('src') || '';
@@ -349,7 +508,8 @@ async function syncAllAnime(force: boolean = false) {
               type: isMov ? ('movie' as const) : ('series' as const),
               [isMov ? 'movieId' : 'seriesId']: slug,
               slug,
-              language: 'Hindi, Tamil, Telugu, English'
+              language: 'Hindi, Tamil, Telugu, English',
+              isPremium: isAnimePremium(slug)
             };
             syncStore.allAnimeMap.set(slug, item);
 
@@ -368,7 +528,6 @@ async function syncAllAnime(force: boolean = false) {
       if (tempTopFilms.length > 0) syncStore.top_films = tempTopFilms;
     }
 
-    // 2. Concurrently Sync Pages 1 to 4 of Series & Movies Catalogs
     const catalogUrls = [
       { type: 'series' as const, page: 1, url: `${UPSTREAM_BASE_URL}/series/page/1/` },
       { type: 'series' as const, page: 2, url: `${UPSTREAM_BASE_URL}/series/page/2/` },
@@ -380,7 +539,7 @@ async function syncAllAnime(force: boolean = false) {
       { type: 'movie' as const, page: 4, url: `${UPSTREAM_BASE_URL}/movies/page/4/` }
     ];
 
-    const results = await Promise.allSettled(
+    await Promise.allSettled(
       catalogUrls.map(async (entry) => {
         const html = await fetchHtml(entry.url);
         if (!html) return;
@@ -400,34 +559,263 @@ async function syncAllAnime(force: boolean = false) {
       })
     );
 
+    refreshAnimePremiumStatuses();
     syncStore.lastSynced = Date.now();
     syncStore.totalSyncedCount = syncStore.allAnimeMap.size;
-    console.log(`✅ AnimeWorld India Sync Finished! Total Synced Anime: ${syncStore.totalSyncedCount}`);
+    console.log(`✅ Deadline Anime Sync Finished! Total Synced Anime: ${syncStore.totalSyncedCount}`);
   } catch (err: any) {
-    console.error('❌ Error during AnimeWorld India sync:', err.message);
+    console.error('❌ Error during Deadline Anime sync:', err.message);
   } finally {
     syncStore.isSyncing = false;
   }
 }
 
-// Initial Sync on server bootstrap
 syncAllAnime();
+
+// ----------------------------------------------------
+// Subscription Plans (FamGateway)
+// 1. One 149 rupees: "Monthly Standard Fan Pass"
+// 2. Second 149 rupees: "VIP Otaku Pass"
+// 3. An yearly plan 600 rupees: "Yearly Mega Fan Pass"
+// ----------------------------------------------------
+const PLANS = {
+  plan_149_fan: {
+    id: 'plan_149_fan',
+    name: 'Monthly Standard Fan',
+    price: 149,
+    currency: 'INR',
+    durationDays: 30,
+    durationText: '1 Month',
+    features: [
+      'Full 1080p HD Streaming',
+      'Hindi, Tamil, Telugu, English Audio',
+      'All Premium Series & Episodes',
+      'Ad-free experience'
+    ]
+  },
+  plan_149_otaku: {
+    id: 'plan_149_otaku',
+    name: 'VIP Otaku Pass',
+    price: 149,
+    currency: 'INR',
+    durationDays: 30,
+    durationText: '1 Month VIP',
+    features: [
+      '4K Ultra HD Quality',
+      '2 Devices Simultaneously',
+      'Priority Abyss & Zephyrix CDN',
+      'VIP Discord Role & Crown Badge'
+    ]
+  },
+  plan_600_yearly: {
+    id: 'plan_600_yearly',
+    name: 'Yearly Mega Fan Pass',
+    price: 600,
+    currency: 'INR',
+    durationDays: 365,
+    durationText: '1 Full Year (Save 66%)',
+    badge: 'BEST VALUE · SAVE 66%',
+    popular: true,
+    features: [
+      '365 Days Unlimited Access',
+      'All Theatrical Movies & Series Unlocked',
+      '4 Screens At The Same Time',
+      'Early Releases & Feature Films',
+      'Dedicated High-Speed VIP Stream Server'
+    ]
+  }
+};
+
+// ----------------------------------------------------
+// Admin Routes (Email: prithvirajshetty769@gmail.com)
+// ----------------------------------------------------
+app.get('/api/admin/config', (req: Request, res: Response) => {
+  res.json({
+    appName: adminConfig.appName || 'AnimeWorld India',
+    adminEmail: adminConfig.adminEmail,
+    famGatewayApiKey: adminConfig.famGatewayApiKey,
+    famGatewayMerchantId: adminConfig.famGatewayMerchantId || '',
+    hasApiKey: Boolean(adminConfig.famGatewayApiKey),
+    premiumAnimeIds: adminConfig.premiumAnimeIds
+  });
+});
+
+app.post('/api/admin/toggle-premium', (req: Request, res: Response) => {
+  const { slug, isPremium } = req.body;
+  if (!slug) return res.status(400).json({ error: 'Missing anime slug' });
+
+  const cleanSlug = slug.toLowerCase().trim();
+  const exists = adminConfig.premiumAnimeIds.includes(cleanSlug);
+
+  if (isPremium && !exists) {
+    adminConfig.premiumAnimeIds.push(cleanSlug);
+  } else if (!isPremium && exists) {
+    adminConfig.premiumAnimeIds = adminConfig.premiumAnimeIds.filter(s => s !== cleanSlug);
+  }
+
+  saveAdminConfig();
+  refreshAnimePremiumStatuses();
+
+  res.json({
+    success: true,
+    slug: cleanSlug,
+    isPremium: adminConfig.premiumAnimeIds.includes(cleanSlug),
+    totalPremium: adminConfig.premiumAnimeIds.length
+  });
+});
+
+app.post('/api/admin/batch-premium', (req: Request, res: Response) => {
+  const { slugs, isPremium } = req.body;
+  if (!Array.isArray(slugs)) return res.status(400).json({ error: 'Expected array of slugs' });
+
+  for (const slug of slugs) {
+    const cleanSlug = slug.toLowerCase().trim();
+    const exists = adminConfig.premiumAnimeIds.includes(cleanSlug);
+    if (isPremium && !exists) {
+      adminConfig.premiumAnimeIds.push(cleanSlug);
+    } else if (!isPremium && exists) {
+      adminConfig.premiumAnimeIds = adminConfig.premiumAnimeIds.filter(s => s !== cleanSlug);
+    }
+  }
+
+  saveAdminConfig();
+  refreshAnimePremiumStatuses();
+
+  res.json({
+    success: true,
+    totalPremium: adminConfig.premiumAnimeIds.length
+  });
+});
+
+app.post('/api/admin/set-gateway-key', (req: Request, res: Response) => {
+  const { apiKey, merchantId, appName } = req.body;
+  if (apiKey !== undefined) adminConfig.famGatewayApiKey = apiKey.trim();
+  if (merchantId !== undefined) adminConfig.famGatewayMerchantId = merchantId.trim();
+  if (appName !== undefined && appName.trim()) adminConfig.appName = appName.trim();
+  saveAdminConfig();
+  res.json({
+    success: true,
+    appName: adminConfig.appName,
+    hasApiKey: Boolean(adminConfig.famGatewayApiKey),
+    message: 'Admin settings & FamGateway credentials saved successfully.'
+  });
+});
+
+app.get('/api/admin/all-anime', (req: Request, res: Response) => {
+  const list = Array.from(syncStore.allAnimeMap.values()).map(item => ({
+    title: item.title,
+    slug: item.slug,
+    type: item.type,
+    image: item.image,
+    year: item.year,
+    rating: item.rating,
+    isPremium: isAnimePremium(item.slug)
+  }));
+  res.json({ success: true, count: list.length, items: list });
+});
+
+// ----------------------------------------------------
+// FamGateway Payment Endpoints
+// ----------------------------------------------------
+app.get('/api/payment/plans', (req: Request, res: Response) => {
+  res.json({ success: true, plans: Object.values(PLANS) });
+});
+
+app.post('/api/payment/famgateway/create-order', (req: Request, res: Response) => {
+  const { planId, email, name } = req.body;
+  const plan = (PLANS as any)[planId];
+  if (!plan) return res.status(400).json({ error: 'Invalid plan selected' });
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+
+  const orderId = `FAM_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+  const upiId = adminConfig.famGatewayMerchantId || 'famgateway.pay@upi';
+  const brandName = (adminConfig.appName || 'AnimeWorld India').replace(/[^a-zA-Z0-9 ]/g, '').trim();
+  const upiUrl = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(brandName)}&am=${plan.price}&cu=INR&tn=${encodeURIComponent(orderId)}`;
+
+  res.json({
+    success: true,
+    orderId,
+    gateway: 'FamGateway',
+    hasApiKey: Boolean(adminConfig.famGatewayApiKey),
+    plan: {
+      id: plan.id,
+      name: plan.name,
+      price: plan.price,
+      currency: plan.currency,
+      durationDays: plan.durationDays,
+      durationText: plan.durationText
+    },
+    paymentDetails: {
+      amount: plan.price,
+      currency: 'INR',
+      upiId,
+      upiUrl,
+      customerEmail: email,
+      customerName: name || 'Anime Fan'
+    }
+  });
+});
+
+app.post('/api/payment/famgateway/verify', (req: Request, res: Response) => {
+  const { orderId, planId, email, transactionId } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email required' });
+
+  const plan = (PLANS as any)[planId] || PLANS['plan_149_fan'];
+  const durationMs = (plan.durationDays || 30) * 24 * 60 * 60 * 1000;
+  const expiresAt = Date.now() + durationMs;
+
+  const cleanEmail = email.toLowerCase().trim();
+  const existingIdx = premiumUsers.findIndex(u => u.email.toLowerCase().trim() === cleanEmail);
+  const userEntry: PremiumUser = {
+    email: cleanEmail,
+    isPremium: true,
+    plan: plan.name,
+    expiresAt,
+    createdAt: Date.now()
+  };
+
+  if (existingIdx >= 0) {
+    premiumUsers[existingIdx] = userEntry;
+  } else {
+    premiumUsers.push(userEntry);
+  }
+  savePremiumUsers();
+
+  res.json({
+    success: true,
+    message: `Payment of ₹${plan.price} verified with FamGateway! You now have full VIP Premium access.`,
+    user: {
+      email: userEntry.email,
+      isPremium: true,
+      isAdmin: cleanEmail === adminConfig.adminEmail.toLowerCase().trim(),
+      plan: userEntry.plan,
+      expiresAt: userEntry.expiresAt
+    }
+  });
+});
+
+app.get('/api/user/status', (req: Request, res: Response) => {
+  const email = (req.query.email as string) || (req.headers['x-user-email'] as string) || '';
+  const status = isUserPremium(email);
+  res.json({
+    email,
+    ...status
+  });
+});
 
 // ----------------------------------------------------
 // API Route 1: Home (Rich Synced Shelves)
 // ----------------------------------------------------
 app.get(['/api/anime-world-india/v1/home', '/api/anime-world-india/v1/home.php'], async (req: Request, res: Response) => {
-  // If syncStore has low count, trigger sync in background
   if (syncStore.totalSyncedCount < 30) {
     syncAllAnime();
   }
 
-  // Derive all series and movies
+  refreshAnimePremiumStatuses();
   const allSynced = Array.from(syncStore.allAnimeMap.values());
   const seriesList = allSynced.filter(i => i.type === 'series');
   const moviesList = allSynced.filter(i => i.type === 'movie');
 
-  // Featured carousel highlights
   const featured = [
     ...(syncStore.top_shows.length > 0 ? syncStore.top_shows.slice(0, 3) : []),
     ...(syncStore.new_anime_arrivals.length > 0 ? syncStore.new_anime_arrivals.slice(0, 2) : []),
@@ -436,7 +824,7 @@ app.get(['/api/anime-world-india/v1/home', '/api/anime-world-india/v1/home.php']
 
   res.json({
     success: true,
-    source: 'animeworld-india.me',
+    source: 'deadline-anime',
     last_synced: syncStore.lastSynced,
     total_synced_count: syncStore.totalSyncedCount,
     is_syncing: syncStore.isSyncing,
@@ -461,7 +849,7 @@ app.all(['/api/anime-world-india/v1/sync', '/api/anime-world-india/v1/sync.php']
   await syncAllAnime(force);
   res.json({
     success: true,
-    message: 'AnimeWorld India database synchronized successfully.',
+    message: 'Deadline Anime database synchronized successfully.',
     total_synced_count: syncStore.totalSyncedCount,
     last_synced: syncStore.lastSynced,
     sections: {
@@ -504,19 +892,19 @@ app.get(['/api/anime-world-india/v1/sync-status', '/api/anime-world-india/v1/syn
 app.get(['/api/anime-world-india/v1/series', '/api/anime-world-india/v1/series.php'], async (req: Request, res: Response) => {
   const page = parseInt((req.query.p || req.query.page || '1') as string, 10) || 1;
 
-  // If in synced cache, return right away or fetch live
   const cachedPage = syncStore.seriesCatalog.get(page);
   if (cachedPage && cachedPage.length > 0) {
+    const list = cachedPage.map(item => ({ ...item, isPremium: isAnimePremium(item.slug) }));
     return res.json({
       success: true,
-      source: 'animeworld-india.me/series (synced cache)',
+      source: 'deadline-anime/series (synced cache)',
       current_page: page,
       total_pages: 15,
       has_next: page < 15,
       has_prev: page > 1,
       pages: Array.from({ length: 10 }, (_, i) => i + 1),
-      total_results: cachedPage.length,
-      series: cachedPage
+      total_results: list.length,
+      series: list
     });
   }
 
@@ -567,7 +955,7 @@ app.get(['/api/anime-world-india/v1/series', '/api/anime-world-india/v1/series.p
 
     res.json({
       success: true,
-      source: 'animeworld-india.me/series',
+      source: 'deadline-anime/series',
       current_page: page,
       total_pages: totalPages,
       has_next: page < totalPages,
@@ -599,16 +987,17 @@ app.get(['/api/anime-world-india/v1/movie', '/api/anime-world-india/v1/movie.php
 
   const cachedPage = syncStore.moviesCatalog.get(page);
   if (cachedPage && cachedPage.length > 0) {
+    const list = cachedPage.map(item => ({ ...item, isPremium: isAnimePremium(item.slug) }));
     return res.json({
       success: true,
-      source: 'animeworld-india.me/movies (synced cache)',
+      source: 'deadline-anime/movies (synced cache)',
       current_page: page,
       total_pages: 15,
       has_next: page < 15,
       has_prev: page > 1,
       pages: Array.from({ length: 10 }, (_, i) => i + 1),
-      total_results: cachedPage.length,
-      movies: cachedPage
+      total_results: list.length,
+      movies: list
     });
   }
 
@@ -659,7 +1048,7 @@ app.get(['/api/anime-world-india/v1/movie', '/api/anime-world-india/v1/movie.php
 
     res.json({
       success: true,
-      source: 'animeworld-india.me/movies',
+      source: 'deadline-anime/movies',
       current_page: page,
       total_pages: totalPages,
       has_next: page < totalPages,
@@ -694,12 +1083,13 @@ app.get(['/api/anime-world-india/v1/seasons', '/api/anime-world-india/v1/seasons
     return res.status(400).json({ success: false, error: 'Missing seriesID parameter' });
   }
 
+  const isPrem = isAnimePremium(seriesID);
+
   try {
     const url = `${UPSTREAM_BASE_URL}/series/${seriesID}/`;
     const html = await fetchHtml(url);
 
     if (!html) {
-      // Find from synced store
       const synced = syncStore.allAnimeMap.get(seriesID) || FALLBACK_SERIES.find(s => s.seriesId === seriesID) || FALLBACK_SERIES[0];
       return res.json({
         success: true,
@@ -713,7 +1103,8 @@ app.get(['/api/anime-world-india/v1/seasons', '/api/anime-world-india/v1/seasons
           rating: synced.rating || '8.7',
           totalSeasons: '1',
           description: `${synced.title} full anime series streaming in Hindi dub and multi-audio.`,
-          genres: ['Action', 'Adventure', 'Anime', 'Hindi Dub']
+          genres: ['Action', 'Adventure', 'Anime', 'Hindi Dub'],
+          isPremium: isPrem
         },
         seasons: [
           {
@@ -768,7 +1159,7 @@ app.get(['/api/anime-world-india/v1/seasons', '/api/anime-world-india/v1/seasons
 
     res.json({
       success: true,
-      source: 'animeworld-india.me/series',
+      source: 'deadline-anime/series',
       series: {
         seriesId: seriesID,
         title,
@@ -778,7 +1169,8 @@ app.get(['/api/anime-world-india/v1/seasons', '/api/anime-world-india/v1/seasons
         rating,
         totalSeasons: seasons.length.toString(),
         description,
-        genres: genres.length > 0 ? genres : ['Action', 'Anime', 'Hindi Dub']
+        genres: genres.length > 0 ? genres : ['Action', 'Anime', 'Hindi Dub'],
+        isPremium: isPrem
       },
       seasons
     });
@@ -803,13 +1195,15 @@ app.get(['/api/anime-world-india/v1/episodes', '/api/anime-world-india/v1/episod
     return res.status(400).json({ success: false, error: 'Missing seasonId parameter' });
   }
 
+  const cleanSeriesSlug = seriesId || targetId.replace(/-season-\d+$/, '');
+  const isPrem = isAnimePremium(cleanSeriesSlug);
+
   try {
     let episodes: any[] = [];
     let animeTitle = '';
     let poster = '';
     let seasonName = `Season ${seasonNum || 1}`;
 
-    // 1. Try WP admin-ajax if postId is provided
     if (postId) {
       const ajaxRes = await fetch(`${UPSTREAM_BASE_URL}/wp-admin/admin-ajax.php`, {
         method: 'POST',
@@ -848,16 +1242,15 @@ app.get(['/api/anime-world-india/v1/episodes', '/api/anime-world-india/v1/episod
               episodeNumber: epNum || `Episode ${episodes.length + 1}`,
               airDate: 'Available',
               image: img,
-              overview: `Watch ${title || epNum} in high quality Hindi dub and multi-audio.`
+              overview: `Watch ${title || epNum} in high quality Hindi dub and multi-audio.`,
+              isPremium: isPrem
             });
           }
         }
       }
     }
 
-    // 2. Fetch series page directly if needed
     if (episodes.length === 0) {
-      const cleanSeriesSlug = seriesId || targetId.replace(/-season-\d+$/, '');
       const seriesUrl = `${UPSTREAM_BASE_URL}/series/${cleanSeriesSlug}/`;
       const html = await fetchHtml(seriesUrl);
 
@@ -881,14 +1274,14 @@ app.get(['/api/anime-world-india/v1/episodes', '/api/anime-world-india/v1/episod
               episodeNumber: num,
               airDate: 'Available',
               image: img,
-              overview: 'Streaming in Hindi Dub and Regional Audio with Abyss and Zephyrix servers.'
+              overview: 'Streaming in Hindi Dub and Regional Audio with Abyss and Zephyrix servers.',
+              isPremium: isPrem
             });
           }
         }
       }
     }
 
-    // 3. Fallback generated episode list
     if (episodes.length === 0) {
       const cleanTitle = (seriesId || targetId).replace(/-/g, ' ');
       for (let i = 1; i <= 12; i++) {
@@ -898,14 +1291,15 @@ app.get(['/api/anime-world-india/v1/episodes', '/api/anime-world-india/v1/episod
           episodeNumber: `Episode ${i}`,
           airDate: 'Available',
           image: poster || 'https://image.tmdb.org/t/p/w500/kV27j3Nz4d5z8u6mN3EJw9RiLg2.jpg',
-          overview: `Stream ${cleanTitle} episode ${i} with Hindi, Tamil, Telugu, and English audio options.`
+          overview: `Stream ${cleanTitle} episode ${i} with Hindi, Tamil, Telugu, and English audio options.`,
+          isPremium: isPrem
         });
       }
     }
 
     res.json({
       success: true,
-      source: 'animeworld-india.me/season',
+      source: 'deadline-anime/season',
       season: {
         seasonId: targetId,
         animeTitle: animeTitle || targetId.replace(/-season-\d+$/, '').replace(/-/g, ' '),
@@ -914,7 +1308,8 @@ app.get(['/api/anime-world-india/v1/episodes', '/api/anime-world-india/v1/episod
         rating: '8.8',
         duration: '24 min/ep',
         poster: poster || 'https://image.tmdb.org/t/p/w500/kV27j3Nz4d5z8u6mN3EJw9RiLg2.jpg',
-        description: `Watch all episodes of ${animeTitle || seasonName} in Hindi Dubbed, Tamil, Telugu & English.`
+        description: `Watch all episodes of ${animeTitle || seasonName} in Hindi Dubbed, Tamil, Telugu & English.`,
+        isPremium: isPrem
       },
       episodes
     });
@@ -924,11 +1319,12 @@ app.get(['/api/anime-world-india/v1/episodes', '/api/anime-world-india/v1/episod
 });
 
 // ----------------------------------------------------
-// API Route 6: Stream & Video Links (Multi-Audio Abyss)
+// API Route 6: Stream & Video Links (Premium Guard)
 // ----------------------------------------------------
 app.get(['/api/anime-world-india/v1/stream', '/api/anime-world-india/v1/stream.php'], async (req: Request, res: Response) => {
   const episodeId = (req.query.episodeId || req.query.series || '') as string;
   const movieId = (req.query.movieId || req.query.movie || '') as string;
+  const userEmail = (req.headers['x-user-email'] as string) || (req.query.userEmail as string) || '';
 
   if (!episodeId && !movieId) {
     return res.status(400).json({ success: false, error: 'Missing episodeId or movieId parameter' });
@@ -936,6 +1332,10 @@ app.get(['/api/anime-world-india/v1/stream', '/api/anime-world-india/v1/stream.p
 
   const isMovie = Boolean(movieId);
   const targetId = isMovie ? movieId : episodeId;
+  const seriesOrMovieSlug = isMovie ? targetId : targetId.split('-').slice(0, -1).join('-');
+
+  const isPrem = isAnimePremium(targetId) || isAnimePremium(seriesOrMovieSlug);
+  const userAccess = isUserPremium(userEmail);
 
   try {
     const url = isMovie
@@ -981,7 +1381,7 @@ app.get(['/api/anime-world-india/v1/stream', '/api/anime-world-india/v1/stream.p
         }
       }
 
-      // Check dub player for multi-audio config
+      // Check dub player
       const dubIframe = servers.find(s => s.url.includes('/dub-player/t/'));
       if (dubIframe) {
         try {
@@ -1026,7 +1426,6 @@ app.get(['/api/anime-world-india/v1/stream', '/api/anime-world-india/v1/stream.p
         }
       }
 
-      // Extract next/prev buttons
       const prevA = root.querySelector('a.prev, .nav-prev a, a[rel="prev"]');
       if (prevA) {
         const href = prevA.getAttribute('href') || '';
@@ -1038,7 +1437,6 @@ app.get(['/api/anime-world-india/v1/stream', '/api/anime-world-india/v1/stream.p
         if (href.includes('/episode/')) nextEp = href.replace(/.*\/episode\//, '').replace(/\/$/, '');
       }
 
-      // Extract up next episodes
       for (const a of root.querySelectorAll('a[href*="/episode/"]')) {
         const href = a.getAttribute('href') || '';
         const epSlug = href.replace(/.*\/episode\//, '').replace(/\/$/, '');
@@ -1050,10 +1448,57 @@ app.get(['/api/anime-world-india/v1/stream', '/api/anime-world-india/v1/stream.p
             episodeId: epSlug,
             title: epTitle || epSlug.replace(/-/g, ' '),
             episodeNumber: epNum,
-            image: epImg
+            image: epImg,
+            isPremium: isPrem
           });
         }
       }
+    }
+
+    // Check if anime is Premium locked for this user
+    if (isPrem && !userAccess.isPremium) {
+      return res.json({
+        success: true,
+        type: isMovie ? 'movie' : 'episode',
+        source: 'deadline-anime',
+        isPremiumLocked: true,
+        requiredPlan: 'Deadline Anime Premium (Starting at ₹149)',
+        movie: isMovie ? {
+          movieId: targetId,
+          title,
+          poster: poster || 'https://image.tmdb.org/t/p/w500/1TfdgQbZXuEswjqLYlsVvhHw0Py.jpg',
+          description: description || `Watch ${title} in full HD with Hindi dub and regional audio options.`,
+          year,
+          duration,
+          rating,
+          isPremium: true
+        } : undefined,
+        series: !isMovie ? {
+          title: title.split(/\s+\d+x\d+/)[0] || title,
+          poster: poster || 'https://image.tmdb.org/t/p/w500/kV27j3Nz4d5z8u6mN3EJw9RiLg2.jpg',
+          season: 'Season 1',
+          totalEpisodes: '12',
+          rating,
+          duration,
+          description,
+          isPremium: true
+        } : undefined,
+        current: !isMovie ? {
+          episodeId: targetId,
+          title,
+          airDate: 'Available',
+          overview: description || 'Stream high-speed anime with multiple audio options.'
+        } : undefined,
+        previous: prevEp,
+        next: nextEp,
+        episodes: episodesList.slice(0, 15),
+        stream: {
+          streamLink: '',
+          file: '',
+          servers: [],
+          audioTracks: []
+        }
+      });
     }
 
     if (audioTracks.length > 0) {
@@ -1078,7 +1523,8 @@ app.get(['/api/anime-world-india/v1/stream', '/api/anime-world-india/v1/stream.p
     res.json({
       success: true,
       type: isMovie ? 'movie' : 'episode',
-      source: isMovie ? 'animeworld-india.me/movie' : 'animeworld-india.me/episode',
+      source: 'deadline-anime',
+      isPremiumLocked: false,
       movie: isMovie ? {
         movieId: targetId,
         title,
@@ -1086,7 +1532,8 @@ app.get(['/api/anime-world-india/v1/stream', '/api/anime-world-india/v1/stream.p
         description: description || `Watch ${title} in full HD with Hindi dub and regional audio options.`,
         year,
         duration,
-        rating
+        rating,
+        isPremium: isPrem
       } : undefined,
       series: !isMovie ? {
         title: title.split(/\s+\d+x\d+/)[0] || title,
@@ -1095,7 +1542,8 @@ app.get(['/api/anime-world-india/v1/stream', '/api/anime-world-india/v1/stream.p
         totalEpisodes: '12',
         rating,
         duration,
-        description
+        description,
+        isPremium: isPrem
       } : undefined,
       current: !isMovie ? {
         episodeId: targetId,
@@ -1132,14 +1580,12 @@ app.get(['/api/anime-world-india/v1/search', '/api/anime-world-india/v1/search.p
   const q = query.toLowerCase();
   const resultsMap = new Map<string, any>();
 
-  // 1. Search across in-memory Synced Database first
   for (const item of syncStore.allAnimeMap.values()) {
     if (item.title.toLowerCase().includes(q) || item.slug.toLowerCase().includes(q)) {
-      resultsMap.set(item.slug, item);
+      resultsMap.set(item.slug, { ...item, isPremium: isAnimePremium(item.slug) });
     }
   }
 
-  // 2. Also search upstream for complete real-time discovery
   try {
     const url = `${UPSTREAM_BASE_URL}/?s=${encodeURIComponent(query)}&page=${page}`;
     const html = await fetchHtml(url);
@@ -1166,7 +1612,7 @@ app.get(['/api/anime-world-india/v1/search', '/api/anime-world-india/v1/search.p
     currentPage: page,
     totalPages: Math.max(1, Math.ceil(combinedResults.length / 20)),
     total_results: combinedResults.length,
-    source: 'animeworld-india.me/search (synced)',
+    source: 'deadline-anime/search (synced)',
     results: combinedResults
   });
 });
@@ -1180,7 +1626,6 @@ app.get(['/api/anime-world-india/v1/a2z', '/api/anime-world-india/v1/a2z.php'], 
 
   const resultsMap = new Map<string, any>();
 
-  // Check synced database first
   for (const item of syncStore.allAnimeMap.values()) {
     const firstChar = item.title.trim().charAt(0).toLowerCase();
     const isMatch = letter === '0-9' ? /^\d/.test(firstChar) : firstChar === letter;
@@ -1192,12 +1637,12 @@ app.get(['/api/anime-world-india/v1/a2z', '/api/anime-world-india/v1/a2z.php'], 
         rating: item.rating,
         type: item.type,
         id: `${item.type}/${item.slug}`,
-        url: ''
+        url: '',
+        isPremium: isAnimePremium(item.slug)
       });
     }
   }
 
-  // Upstream
   try {
     const url = `${UPSTREAM_BASE_URL}/letters/${encodeURIComponent(letter)}/page/${page}/`;
     const html = await fetchHtml(url);
@@ -1214,7 +1659,8 @@ app.get(['/api/anime-world-india/v1/a2z', '/api/anime-world-india/v1/a2z.php'], 
             rating: item.rating,
             type: item.type,
             id: `${item.type}/${item.slug}`,
-            url: ''
+            url: '',
+            isPremium: isAnimePremium(item.slug)
           });
           syncStore.allAnimeMap.set(item.slug, item);
         }
@@ -1241,63 +1687,64 @@ app.get(['/api/anime-world-india/v1/a2z', '/api/anime-world-india/v1/a2z.php'], 
 // ----------------------------------------------------
 app.get('/api/anime-world-india/v1/docs', (req: Request, res: Response) => {
   res.json({
-    name: 'AnimeWorld India Streaming API v1',
-    description: 'High performance API for browsing and streaming Hindi dubbed and multi-audio anime series and movies.',
+    name: 'Deadline Anime Streaming & FamGateway API v1',
+    description: 'High performance API for browsing, premium management, and streaming Hindi dubbed and multi-audio anime series and movies.',
     source: UPSTREAM_BASE_URL,
     total_synced_anime: syncStore.totalSyncedCount,
     last_synced: syncStore.lastSynced,
-    version: '1.3.0',
+    version: '2.0.0',
     endpoints: [
       {
-        path: '/api/anime-world-india/v1/home',
+        path: '/api/admin/config',
         method: 'GET',
-        description: 'Fetches rich synced shelves (Newest Drops, New Anime Arrivals, Top Shows, Top Films, Latest Movies, Cartoon Series).'
+        description: 'Get admin configurations and current list of premium anime.'
       },
       {
-        path: '/api/anime-world-india/v1/sync',
-        method: 'GET / POST',
-        description: 'Synchronizes and fetches more anime from AnimeWorld India with multi-page crawling.'
+        path: '/api/admin/toggle-premium',
+        method: 'POST',
+        description: 'Admin toggle for which anime is Premium and which is Free.'
       },
       {
-        path: '/api/anime-world-india/v1/sync-status',
-        method: 'GET',
-        description: 'Returns real-time sync status, total synced anime count, and section distribution.'
+        path: '/api/admin/set-gateway-key',
+        method: 'POST',
+        description: 'Set FamGateway API Key credentials.'
       },
       {
-        path: '/api/anime-world-india/v1/series?p=1',
+        path: '/api/payment/plans',
         method: 'GET',
-        description: 'Fetches paginated anime series catalog.'
+        description: 'Fetch available FamGateway subscription plans (₹149, ₹149, ₹600).'
       },
       {
-        path: '/api/anime-world-india/v1/movie?p=1',
-        method: 'GET',
-        description: 'Fetches paginated anime movies catalog.'
+        path: '/api/payment/famgateway/create-order',
+        method: 'POST',
+        description: 'Generate a FamGateway UPI/Order for subscription.'
       },
       {
-        path: '/api/anime-world-india/v1/seasons?seriesID=naruto-shippuden',
-        method: 'GET',
-        description: 'Retrieves series details and available seasons.'
-      },
-      {
-        path: '/api/anime-world-india/v1/episodes?seasonId=naruto-shippuden-season-1',
-        method: 'GET',
-        description: 'Retrieves episodes for a specific season.'
-      },
-      {
-        path: '/api/anime-world-india/v1/stream?episodeId=naruto-shippuden-16x349',
-        method: 'GET',
-        description: 'Retrieves streaming embeds and multi-audio tracks (Hindi, Tamil, Telugu, English).'
-      },
-      {
-        path: '/api/anime-world-india/v1/search?query=naruto',
-        method: 'GET',
-        description: 'Searches all synced anime + real-time upstream queries.'
-      },
-      {
-        path: '/api/anime-world-india/v1/a2z?letter=a',
-        method: 'GET',
-        description: 'Lists anime by alphabetical letter or 0-9.'
+        path: '/api/payment/famgateway/verify',
+        method: 'POST',
+        description: 'Verify FamGateway payment and activate premium membership.'
       }
+    ]
+  });
+});
+
+app.get(['/api', '/api/docs'], (req: Request, res: Response) => {
+  res.json({
+    status: 'online',
+    name: `${adminConfig.appName || 'AnimeWorld India'} API Server`,
+    vercelCompatible: true,
+    version: '2.0.0',
+    endpoints: [
+      '/api/admin/config',
+      '/api/admin/toggle-premium',
+      '/api/admin/set-gateway-key',
+      '/api/payment/plans',
+      '/api/payment/famgateway/create-order',
+      '/api/payment/famgateway/verify',
+      '/api/anime-world-india/v1/search',
+      '/api/anime-world-india/v1/top-airing',
+      '/api/anime-world-india/v1/info',
+      '/api/anime-world-india/v1/stream'
     ]
   });
 });
@@ -1324,4 +1771,11 @@ async function setupVite() {
   });
 }
 
-setupVite();
+// Only start the standalone Vite/Express HTTP listener when not running in Vercel Serverless environment
+if (!process.env.VERCEL) {
+  setupVite();
+}
+
+export { app };
+export default app;
+

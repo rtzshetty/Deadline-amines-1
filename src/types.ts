@@ -8,6 +8,7 @@ export interface AnimeItem {
   slug?: string;
   type?: 'series' | 'movie';
   language?: string;
+  isPremium?: boolean;
 }
 
 export interface SeasonInfo {
@@ -35,9 +36,10 @@ export interface EpisodeItem {
   episodeId: string;
   title: string;
   episodeNumber: string;
-  airDate: string;
+  airDate?: string;
   image: string;
   overview?: string;
+  isPremium?: boolean;
 }
 
 export interface AudioTrack {
@@ -57,6 +59,8 @@ export interface StreamData {
   success: boolean;
   type: 'series' | 'episode' | 'movie';
   source: string;
+  isPremiumLocked?: boolean;
+  requiredPlan?: string;
   movie?: {
     movieId: string;
     title: string;
@@ -137,4 +141,35 @@ export interface HomeData {
   featured: AnimeItem[];
   all_synced?: AnimeItem[];
 }
+
+export interface UserProfile {
+  email: string;
+  name?: string;
+  picture?: string;
+  isAdmin: boolean;
+  isPremium: boolean;
+  plan?: string;
+  expiresAt?: number;
+}
+
+export interface PricingPlan {
+  id: string;
+  name: string;
+  price: number;
+  currency: string;
+  durationText: string;
+  badge?: string;
+  features: string[];
+  popular?: boolean;
+}
+
+export interface AdminConfigData {
+  appName?: string;
+  adminEmail: string;
+  famGatewayApiKey: string;
+  famGatewayMerchantId?: string;
+  hasApiKey: boolean;
+  premiumAnimeIds: string[];
+}
+
 
