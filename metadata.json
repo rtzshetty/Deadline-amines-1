@@ -1,0 +1,6 @@
+{
+  "name": "AnimeWorld India - Streaming App & API",
+  "description": "Stream anime series and movies in Hindi, Tamil, Telugu, and English with multi-audio servers, season episodes, and full AnimeWorld India API integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
