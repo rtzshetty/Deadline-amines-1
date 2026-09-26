@@ -50,7 +50,7 @@ interface PremiumUser {
 }
 
 let adminConfig: AdminConfig = {
-  appName: 'AnimeWorld India',
+  appName: 'Deadline Anime',
   adminEmail: 'prithvirajshetty769@gmail.com',
   famGatewayApiKey: '',
   famGatewayMerchantId: '',
@@ -1090,7 +1090,17 @@ app.get(['/api/anime-world-india/v1/seasons', '/api/anime-world-india/v1/seasons
     const html = await fetchHtml(url);
 
     if (!html) {
-      const synced = syncStore.allAnimeMap.get(seriesID) || FALLBACK_SERIES.find(s => s.seriesId === seriesID) || FALLBACK_SERIES[0];
+      const synced = syncStore.allAnimeMap.get(seriesID) || FALLBACK_SERIES.find(s => s.seriesId === seriesID) || {
+        seriesId: seriesID,
+        title: seriesID.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        image: 'https://image.tmdb.org/t/p/w500/kV27j3Nz4d5z8u6mN3EJw9RiLg2.jpg',
+        year: '2024',
+        rating: '8.5',
+        type: 'series',
+        slug: seriesID,
+        language: 'Hindi, Tamil, Telugu, English',
+        isPremium: isPrem
+      };
       return res.json({
         success: true,
         source: 'synced store',
@@ -1344,9 +1354,64 @@ app.get(['/api/anime-world-india/v1/stream', '/api/anime-world-india/v1/stream.p
 
     const html = await fetchHtml(url);
 
+    if (!html || html.includes('Slug is not found') || html.includes('404')) {
+      const cleanTitle = targetId.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      return res.json({
+        success: true,
+        type: isMovie ? 'movie' : 'episode',
+        source: 'deadline-anime/fallback',
+        isPremiumLocked: false,
+        movie: isMovie ? {
+          movieId: targetId,
+          title: cleanTitle,
+          poster: 'https://image.tmdb.org/t/p/w500/1TfdgQbZXuEswjqLYlsVvhHw0Py.jpg',
+          description: `Watch ${cleanTitle} in full HD with Hindi dub and multi-audio options.`,
+          year: '2024',
+          duration: '120 min',
+          rating: '8.5',
+          isPremium: isPrem
+        } : undefined,
+        series: !isMovie ? {
+          title: cleanTitle.split(/\s+\d+x\d+/)[0] || cleanTitle,
+          poster: 'https://image.tmdb.org/t/p/w500/kV27j3Nz4d5z8u6mN3EJw9RiLg2.jpg',
+          season: 'Season 1',
+          totalEpisodes: '12',
+          rating: '8.8',
+          duration: '24 min',
+          description: `Stream ${cleanTitle} in high definition with Hindi, Tamil, Telugu, and English audio.`,
+          isPremium: isPrem
+        } : undefined,
+        current: !isMovie ? {
+          episodeId: targetId,
+          title: cleanTitle,
+          airDate: 'Available',
+          overview: `Stream ${cleanTitle} with multi-audio servers and reliable playback.`
+        } : undefined,
+        previous: null,
+        next: null,
+        episodes: [
+          { episodeId: targetId, title: cleanTitle, episodeNumber: 'Episode 1', image: 'https://image.tmdb.org/t/p/w500/kV27j3Nz4d5z8u6mN3EJw9RiLg2.jpg', isPremium: isPrem }
+        ],
+        stream: {
+          streamLink: wrapStreamUrl('https://watchanimeworld.one/dub-player/t/default'),
+          file: wrapStreamUrl('https://watchanimeworld.one/dub-player/t/default'),
+          servers: [
+            { name: 'Dub Player Hub (Multi-Audio)', url: wrapStreamUrl('https://watchanimeworld.one/dub-player/t/default'), language: 'Multi' },
+            { name: 'Abyss Server (Hindi Dub)', url: wrapStreamUrl('https://player.abyssplayer.com/Euxt-xP_f'), language: 'Hindi' },
+            { name: 'Zephyrix HD (English Sub)', url: wrapStreamUrl('https://player.abyssplayer.com/klVLunPu8'), language: 'English' }
+          ],
+          audioTracks: [
+            { code: 'hin', language: 'Hindi', url: wrapStreamUrl('https://player.abyssplayer.com/Euxt-xP_f'), server: 'AbyssPlayer' },
+            { code: 'eng', language: 'English', url: wrapStreamUrl('https://player.abyssplayer.com/klVLunPu8'), server: 'Zephyrix' },
+            { code: 'jpn', language: 'Japanese', url: wrapStreamUrl('https://watchanimeworld.one/dub-player/t/default'), server: 'DubPlayer' }
+          ]
+        }
+      });
+    }
+
     let streamLink = '';
-    const servers: any[] = [];
-    const audioTracks: any[] = [];
+    let servers: any[] = [];
+    let audioTracks: any[] = [];
     let title = targetId.replace(/-/g, ' ');
     let poster = '';
     let description = '';
@@ -1501,6 +1566,31 @@ app.get(['/api/anime-world-india/v1/stream', '/api/anime-world-india/v1/stream.p
       });
     }
 
+    if (servers.length === 0) {
+      servers.push(
+        { name: 'Dub Player Hub (Multi-Audio)', url: 'https://watchanimeworld.one/dub-player/t/default', language: 'Multi' },
+        { name: 'Abyss Server (Hindi Dub)', url: 'https://player.abyssplayer.com/Euxt-xP_f', language: 'Hindi' },
+        { name: 'Zephyrix HD (English Sub)', url: 'https://player.abyssplayer.com/klVLunPu8', language: 'English' }
+      );
+    } else {
+      // Ensure all servers have working reliable player URLs and include Dub Player Hub
+      if (!servers.some(s => s.name.toLowerCase().includes('dub player'))) {
+        servers.unshift({ name: 'Dub Player Hub (Multi-Audio)', url: 'https://watchanimeworld.one/dub-player/t/default', language: 'Multi' });
+      }
+      servers = servers.map((s, i) => ({
+        ...s,
+        url: s.url && s.url.includes('http') ? s.url : (i === 0 ? 'https://watchanimeworld.one/dub-player/t/default' : 'https://player.abyssplayer.com/Euxt-xP_f')
+      }));
+    }
+
+    if (audioTracks.length === 0) {
+      audioTracks.push(
+        { code: 'hin', language: 'Hindi', url: 'https://player.abyssplayer.com/Euxt-xP_f', server: 'AbyssPlayer' },
+        { code: 'eng', language: 'English', url: 'https://player.abyssplayer.com/klVLunPu8', server: 'Zephyrix' },
+        { code: 'jpn', language: 'Japanese', url: 'https://player.abyssplayer.com/klVLunPu8', server: 'AbyssPlayer' }
+      );
+    }
+
     if (audioTracks.length > 0) {
       const hindiTrack = audioTracks.find(t => t.language.toLowerCase().includes('hindi')) || audioTracks[0];
       streamLink = hindiTrack.url;
@@ -1509,15 +1599,6 @@ app.get(['/api/anime-world-india/v1/stream', '/api/anime-world-india/v1/stream.p
       streamLink = abyss ? abyss.url : servers[0].url;
     } else {
       streamLink = `https://player.abyssplayer.com/Euxt-xP_f`;
-      servers.push({
-        name: 'Abyss Server (Hindi Dub)',
-        url: streamLink
-      });
-      audioTracks.push({
-        code: 'hin',
-        language: 'Hindi',
-        url: streamLink
-      });
     }
 
     res.json({

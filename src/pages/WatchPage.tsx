@@ -342,23 +342,30 @@ export const WatchPage: React.FC<WatchPageProps> = ({
           )}
 
           {/* Servers Switcher */}
-          {!isPremiumLocked && stream?.servers && stream.servers.length > 1 && (
+          {!isPremiumLocked && stream?.servers && stream.servers.length > 0 && (
             <div className="bg-[#11141e] p-4 rounded-xl border border-[#232838] space-y-3">
-              <span className="text-xs font-semibold text-slate-400 block">Switch Stream Server:</span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-400">Switch Stream Server ({stream.servers.length}):</span>
+                <span className="text-[10px] text-emerald-400 font-medium">Multi-Server Active</span>
+              </div>
               <div className="flex flex-wrap gap-2">
-                {stream.servers.map((server, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleServerChange(server.url)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
-                      activeStreamUrl === server.url
-                        ? 'bg-slate-200 text-black font-semibold'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    {server.name}
-                  </button>
-                ))}
+                {stream.servers.map((server, idx) => {
+                  const isActive = activeStreamUrl === server.url || decodeURIComponent(activeStreamUrl) === decodeURIComponent(server.url);
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => handleServerChange(server.url)}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                        isActive
+                          ? 'bg-red-600 text-white shadow-md shadow-red-600/30 border border-red-500'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700'
+                      }`}
+                    >
+                      <span>📺</span>
+                      <span>{server.name}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
