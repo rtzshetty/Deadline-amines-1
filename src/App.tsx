@@ -41,7 +41,7 @@ export default function App() {
   const [isMovieMode, setIsMovieMode] = useState<boolean>(false);
 
   // App & Brand Name
-  const [appName, setAppName] = useState<string>('Deadline Anime');
+  const [appName, setAppName] = useState<string>('Deadline Amines');
 
   // User Profile & Authentication
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {

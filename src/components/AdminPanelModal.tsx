@@ -487,7 +487,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 </h3>
               </div>
               <p className="text-xs text-slate-400">
-                You can change the name of the app (formerly &quot;Deadline Anime&quot; / &quot;Deadline amin&quot;) to your preferred branding:
+                You can change the name of the app (formerly &quot;Deadline Amines&quot;) to your preferred branding:
               </p>
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-slate-300 uppercase tracking-wide block">

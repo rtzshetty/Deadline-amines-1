@@ -1,6 +1,6 @@
 {
-  "name": "Deadline Anime - Streaming App & API",
-  "description": "Stream anime series and movies in Hindi, Tamil, Telugu, and English with multi-audio servers, season episodes, and full Deadline Anime integration.",
+  "name": "Deadline Amines - Streaming App & API",
+  "description": "Stream anime series and movies in Hindi, Tamil, Telugu, and English with multi-audio servers, season episodes, and full Deadline Amines integration.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

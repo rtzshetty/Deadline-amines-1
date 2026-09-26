@@ -50,7 +50,7 @@ interface PremiumUser {
 }
 
 let adminConfig: AdminConfig = {
-  appName: 'Deadline Anime',
+  appName: 'Deadline Amines',
   adminEmail: 'prithvirajshetty769@gmail.com',
   famGatewayApiKey: '',
   famGatewayMerchantId: '',
@@ -455,7 +455,7 @@ async function syncAllAnime(force: boolean = false) {
   }
 
   syncStore.isSyncing = true;
-  console.log('🔄 Starting Deadline Anime Sync Engine...');
+  console.log('🔄 Starting Deadline Amines Sync Engine...');
 
   try {
     const homeHtml = await fetchHtml(UPSTREAM_BASE_URL);
@@ -562,9 +562,9 @@ async function syncAllAnime(force: boolean = false) {
     refreshAnimePremiumStatuses();
     syncStore.lastSynced = Date.now();
     syncStore.totalSyncedCount = syncStore.allAnimeMap.size;
-    console.log(`✅ Deadline Anime Sync Finished! Total Synced Anime: ${syncStore.totalSyncedCount}`);
+    console.log(`✅ Deadline Amines Sync Finished! Total Synced Anime: ${syncStore.totalSyncedCount}`);
   } catch (err: any) {
-    console.error('❌ Error during Deadline Anime sync:', err.message);
+    console.error('❌ Error during Deadline Amines sync:', err.message);
   } finally {
     syncStore.isSyncing = false;
   }
@@ -849,7 +849,7 @@ app.all(['/api/anime-world-india/v1/sync', '/api/anime-world-india/v1/sync.php']
   await syncAllAnime(force);
   res.json({
     success: true,
-    message: 'Deadline Anime database synchronized successfully.',
+    message: 'Deadline Amines database synchronized successfully.',
     total_synced_count: syncStore.totalSyncedCount,
     last_synced: syncStore.lastSynced,
     sections: {
@@ -1527,7 +1527,7 @@ app.get(['/api/anime-world-india/v1/stream', '/api/anime-world-india/v1/stream.p
         type: isMovie ? 'movie' : 'episode',
         source: 'deadline-anime',
         isPremiumLocked: true,
-        requiredPlan: 'Deadline Anime Premium (Starting at ₹149)',
+        requiredPlan: 'Deadline Amines Premium (Starting at ₹149)',
         movie: isMovie ? {
           movieId: targetId,
           title,
@@ -1906,7 +1906,7 @@ app.get(['/api/anime-world-india/v1/a2z', '/api/anime-world-india/v1/a2z.php'], 
 // ----------------------------------------------------
 app.get('/api/anime-world-india/v1/docs', (req: Request, res: Response) => {
   res.json({
-    name: 'Deadline Anime Streaming & FamGateway API v1',
+    name: 'Deadline Amines Streaming & FamGateway API v1',
     description: 'High performance API for browsing, premium management, and streaming Hindi dubbed and multi-audio anime series and movies.',
     source: UPSTREAM_BASE_URL,
     total_synced_anime: syncStore.totalSyncedCount,
