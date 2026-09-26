@@ -29,6 +29,15 @@ interface WatchPageProps {
   onOpenAuth?: () => void;
 }
 
+function getSafeStreamUrl(url?: string | null): string {
+  if (!url) return '';
+  if (url.startsWith('/api/anime-world-india/v1/player')) return url;
+  if (url.includes('abyssplayer.com') || url.includes('dub-player') || url.includes('zephyrix') || url.startsWith('http')) {
+    return `/api/anime-world-india/v1/player?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+}
+
 export const WatchPage: React.FC<WatchPageProps> = ({
   id,
   isMovie = false,
@@ -65,10 +74,10 @@ export const WatchPage: React.FC<WatchPageProps> = ({
         if (json.success) {
           setData(json);
 
-          // If not locked, find default stream url
+          // If not locked, find default stream url and route through player shield
           if (!json.isPremiumLocked && json.stream) {
             const initialUrl = json.stream.streamLink || (json.stream.servers[0]?.url ?? '');
-            setActiveStreamUrl(initialUrl);
+            setActiveStreamUrl(getSafeStreamUrl(initialUrl));
           }
 
           // Save to watch history
@@ -105,11 +114,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
 
   const handleAudioChange = (track: { language: string; url: string }) => {
     setSelectedAudio(track.language);
-    setActiveStreamUrl(track.url);
+    setActiveStreamUrl(getSafeStreamUrl(track.url));
   };
 
   const handleServerChange = (url: string) => {
-    setActiveStreamUrl(url);
+    setActiveStreamUrl(getSafeStreamUrl(url));
   };
 
   if (loading) {
@@ -254,10 +263,11 @@ export const WatchPage: React.FC<WatchPageProps> = ({
               </div>
             ) : activeStreamUrl ? (
               <iframe
-                src={activeStreamUrl}
+                key={activeStreamUrl}
+                src={getSafeStreamUrl(activeStreamUrl)}
                 title={currentTitle}
                 allowFullScreen
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 className="w-full h-full border-0"
               />
             ) : (

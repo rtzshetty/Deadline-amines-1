@@ -1555,16 +1555,154 @@ app.get(['/api/anime-world-india/v1/stream', '/api/anime-world-india/v1/stream.p
       next: nextEp,
       episodes: episodesList.slice(0, 15),
       stream: {
-        streamLink,
-        file: streamLink,
-        servers,
-        audioTracks
+        streamLink: wrapStreamUrl(streamLink),
+        file: wrapStreamUrl(streamLink),
+        servers: servers.map(s => ({
+          ...s,
+          url: wrapStreamUrl(s.url)
+        })),
+        audioTracks: audioTracks.map(t => ({
+          ...t,
+          url: wrapStreamUrl(t.url)
+        }))
       }
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+// ----------------------------------------------------
+// Helper: Wrap stream URLs through Player Shield
+// ----------------------------------------------------
+function wrapStreamUrl(rawUrl: string): string {
+  if (!rawUrl) return '';
+  if (rawUrl.startsWith('/api/anime-world-india/v1/player')) return rawUrl;
+  return `/api/anime-world-india/v1/player?url=${encodeURIComponent(rawUrl)}`;
+}
+
+// ----------------------------------------------------
+// API Route 6b: Stream Shield & Clean Player Embed
+// Fixes "Player has been destroyed" by neutralizing deceptive ad
+// overlays and popup triggers that cause player termination on mobile
+// ----------------------------------------------------
+app.get(['/api/anime-world-india/v1/player', '/api/player/embed'], async (req: Request, res: Response) => {
+  const targetUrl = (req.query.url as string || '').trim();
+  if (!targetUrl) {
+    return res.status(400).send('Missing video URL parameter');
+  }
+
+  try {
+    const parsedUrl = new URL(targetUrl);
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      return res.status(400).send('Invalid protocol');
+    }
+
+    const fetchHeaders: Record<string, string> = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Referer': 'https://watchanimeworld.one/',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    };
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+
+    const upstreamRes = await fetch(targetUrl, {
+      headers: fetchHeaders,
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+
+    if (!upstreamRes.ok) {
+      return res.redirect(targetUrl);
+    }
+
+    let html = await upstreamRes.text();
+    const origin = parsedUrl.origin;
+
+    // Ensure all relative assets (bundle.js, worker.js, HLS chunks, CSS) resolve to upstream host
+    if (html.includes('<head>')) {
+      html = html.replace('<head>', `<head><base href="${origin}/">`);
+    } else {
+      html = `<base href="${origin}/">` + html;
+    }
+
+    // Comprehensive Player Shield Script:
+    // 1. Replaces window.open with a non-throwing mock so mobile popup blockers never crash the player.
+    // 2. Mocks fuckAdBlock so anti-adblock detection does not execute removal routines.
+    // 3. Guards jwplayer/player instances so .remove() or .destroy() cannot be called.
+    // 4. Eliminates the clickable deceptive #overlay element that captures touches and triggers ads.
+    const shieldScript = `
+<script>
+  (function() {
+    window.open = function() {
+      return {
+        focus: function(){},
+        blur: function(){},
+        close: function(){},
+        closed: false
+      };
+    };
+
+    window.fuckAdBlock = {
+      onDetected: function(){},
+      onNotDetected: function(){},
+      check: function(){ return false; }
+    };
+    window.FuckAdBlock = window.fuckAdBlock;
+
+    function shieldPlayer() {
+      try {
+        if (window.jwplayer && typeof window.jwplayer === 'function') {
+          var p = window.jwplayer();
+          if (p && !p._shielded) {
+            p.remove = function() {
+              console.log('[PlayerShield] Prevented player destruction');
+            };
+            p._shielded = true;
+          }
+        }
+      } catch(e) {}
+    }
+    setInterval(shieldPlayer, 30);
+
+    function removeOverlay() {
+      var ov = document.getElementById('overlay');
+      if (ov) {
+        ov.style.display = 'none';
+        ov.style.pointerEvents = 'none';
+        ov.onclick = null;
+        ov.ontouchend = null;
+        ov.remove();
+      }
+    }
+    document.addEventListener('DOMContentLoaded', removeOverlay);
+    setInterval(removeOverlay, 80);
+  })();
+</script>
+`;
+
+    if (html.includes('<head>')) {
+      html = html.replace('<head>', '<head>' + shieldScript);
+    } else {
+      html = shieldScript + html;
+    }
+
+    // Neutralize track.window >= 2 condition in AbyssPlayer which triggers player removal
+    html = html.replace(/track\.window\s*>=\s*2/g, 'false');
+
+    // Remove the blocking overlay element completely so clicks pass straight to video controls
+    html = html.replace(/<div id="overlay">[\s\S]*?<\/div><\/div>/g, '');
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('X-Frame-Options', 'ALLOWALL');
+    return res.send(html);
+  } catch (err: any) {
+    console.error('Player proxy error:', err.message);
+    return res.redirect(targetUrl);
+  }
+});
+
 
 // ----------------------------------------------------
 // API Route 7: Search (Local Synced + Upstream Multi-Search)
